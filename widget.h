@@ -158,6 +158,11 @@ public:
 protected:
     void closeEvent(QCloseEvent * closeevent);
 
+private slots:
+    void on_DeviceCombox_currentIndexChanged(int index);
+
+    void on_OpenDeviceButton_clicked();
+
 private:
     Ui::Widget *ui;
 
@@ -167,6 +172,12 @@ private:
     bool setCanfdBaudRate(); //设置CANFD卡波特率
     bool setResistanceEnable(); //设置终端电阻使能
     void enableCtrl(bool opened); //combobox使能控制
+    bool IsNetCAN(uint type);
+    bool IsNetCANFD(uint type);
+    bool IsNetTCP(uint type);
+    bool IsNetUDP(uint type);
+    void setCtrlStateDelaySend(bool delaySend, bool delaySendMode, bool getSendMode);
+    void setAutosendCtrlState(bool supportCan, bool supportCanfd, bool supportIndex, bool supportSingleCancel, bool supportGetAutosendList);
 };
 
 #endif // WIDGET_H
