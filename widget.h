@@ -6,6 +6,7 @@
 #include <QMetaType>
 #include <QCloseEvent>
 #include <QObject>
+#include "qReceiveMessageThread.h"
 
 namespace Ui {
 class Widget;
@@ -144,7 +145,9 @@ private:
     bool isOpenDevice; //设备是否打开
     bool isCANStart; //CAN是否启动
 
-    //IProperty * property_; //属性
+    IProperty * property_; //属性
+
+    QReceiveMessageThread  threadRecMsg;//消息接收线程
 
     /* 数据接收 */
 
@@ -152,8 +155,18 @@ public:
     explicit Widget(QWidget *parent = 0);
     ~Widget();
 
+protected:
+    void closeEvent(QCloseEvent * closeevent);
+
 private:
     Ui::Widget *ui;
+
+private:
+    void initComboxIndex(QObject * obj, int begin, int end, int currentIndex);
+    bool setBaudRate(); //设置CAN卡波特率
+    bool setCanfdBaudRate(); //设置CANFD卡波特率
+    bool setResistanceEnable(); //设置终端电阻使能
+    void enableCtrl(bool opened); //combobox使能控制
 };
 
 #endif // WIDGET_H
