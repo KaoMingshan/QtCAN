@@ -25,7 +25,8 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 SOURCES += \
         main.cpp \
-        widget.cpp
+        widget.cpp \
+    qReceiveMessageThread.cpp
 
 HEADERS += \
         widget.h \
@@ -33,7 +34,8 @@ HEADERS += \
     config.h \
     typedef.h \
     widget.h \
-    zlgcan.h
+    zlgcan.h \
+    qReceiveMessageThread.h
 
 FORMS += \
         widget.ui
