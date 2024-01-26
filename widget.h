@@ -151,6 +151,9 @@ private:
 
     /* 数据接收 */
 
+signals:
+    void deviceInfo(CHANNEL_HANDLE channelHandel); //设备信息信号
+
 public:
     explicit Widget(QWidget *parent = 0);
     ~Widget();
@@ -159,9 +162,54 @@ protected:
     void closeEvent(QCloseEvent * closeevent);
 
 private slots:
+    //ui槽函数
     void on_DeviceCombox_currentIndexChanged(int index);
 
     void on_OpenDeviceButton_clicked();
+
+    void on_InitCANButton_clicked();
+
+    void on_StartCANButton_clicked();
+
+    void on_ResetButton_clicked();
+
+    void on_CloseDeviceButton_clicked();
+
+private slots:
+    void slotThreadrecmsgStarted();
+    void slotThreadrecmsgFinished();
+    void slotThreadrecmsgNewmsg(ZCAN_Receive_Data *can_data, uint len);
+    void slotThreadrecmsgNewmsg(ZCAN_ReceiveFD_Data *canfd_data, uint len);
+
+    void on_DeviceIndexCombox_currentIndexChanged(int index);
+
+    void on_ChannelIndexCombox_currentIndexChanged(int index);
+
+    void on_ModelCombox_currentIndexChanged(int index);
+
+    void on_BaudCombox_currentIndexChanged(int index);
+
+    void on_TerminalCheckBox_stateChanged(int arg1);
+
+    void on_FilterModelCombox_currentIndexChanged(int index);
+
+    void on_ArbitBaudCombox_currentIndexChanged(int index);
+
+    void on_DataBaudCombox_currentIndexChanged(int index);
+
+    void on_FrameTypeCombox_currentIndexChanged(int index);
+
+    void on_AgreementCombox_currentIndexChanged(int index);
+
+    void on_CANFDAccCombox_currentIndexChanged(int index);
+
+    void on_QueueFrameDelayCkb_stateChanged(int arg1);
+
+    void on_SendMannerCombox_currentIndexChanged(int index);
+
+    void on_QueueSendModelCkb_stateChanged(int arg1);
+
+    void on_ClearDataButton_clicked();
 
 private:
     Ui::Widget *ui;

@@ -43,6 +43,14 @@ Widget::Widget(QWidget *parent) :
     supportGetSendMode = false;
 
     initComboxIndex(ui->DeviceIndexCombox,0,32,0);
+
+    connect(&threadRecMsg, SIGNAL(started()),this,SLOT(slotThreadrecmsgStarted()));
+    connect(&threadRecMsg, SIGNAL(finished()),this, SLOT(slotThreadrecmsgFinished()));
+    connect(&threadRecMsg, (void (QReceiveMessageThread:: *)(ZCAN_Receive_Data *, uint))&QReceiveMessageThread::newMsg, this, (void (Widget:: *)(ZCAN_Receive_Data *, uint))&Widget::slotThreadrecmsgNewmsg);
+    connect(&threadRecMsg, (void (QReceiveMessageThread:: *)(ZCAN_ReceiveFD_Data *, uint))&QReceiveMessageThread::newMsg, this, (void (Widget:: *)(ZCAN_ReceiveFD_Data *, uint))&Widget::slotThreadrecmsgNewmsg);
+
+
+    connect(this,SIGNAL(deviceInfo(CHANNEL_HANDLE)),&threadRecMsg,SLOT(slot_deviceInfo(CHANNEL_HANDLE)));
 }
 
 Widget::~Widget()
@@ -253,4 +261,294 @@ void Widget::on_OpenDeviceButton_clicked()
         ui->DataRectextBrowser->setText("打开失败");
         return;
     }
+}
+
+
+//对CAN进行初始化
+void Widget::on_InitCANButton_clicked()
+{
+    if(isOpenDevice)
+    {
+        ui->DataRectextBrowser->setText("设备未打开");
+        return;
+    }
+
+    ZCAN_CHANNEL_INIT_CONFIG config;
+
+    memset(&config, 0,sizeof(config));
+    UINT type = deviceType[deviceTypeIndex].deviceName;
+      /* 云设备和网络设备  */
+//    const bool cloudDevice = type == ZCAN_CLOUD;
+//    const bool netcanfd = IsNetCANFD(type);
+//    const bool netcan = IsNetCAN(type);
+//    const bool netDevice = (netcan || netcanfd);
+//    const bool tcpDevice = IsNetTCP(type);
+//    const bool server = net_mode_index_ == 0;
+
+    //对本地设备进行连接
+    const bool usbcanfd = type==ZCAN_USBCANFD_100U ||
+       type==ZCAN_USBCANFD_200U || type==ZCAN_USBCANFD_MINI;
+    const bool pciecanfd = type==ZCAN_PCIE_CANFD_100U ||
+       type == ZCAN_PCIE_CANFD_200U || type == ZCAN_PCIE_CANFD_400U_EX;
+    const bool canfdDevice = usbcanfd || pciecanfd;
+
+    if(!canfdDevice && !setBaudRate())
+    {
+        ui->DataRectextBrowser->append("设置波特率失败");
+        return;
+    }
+
+    if(usbcanfd)
+    {
+        char path[50] = {0};
+        char value[100] = {0};
+        sprintf_s(path,sizeof(path),"%d/canfd_standard",channelIndex);
+        sprintf_s(value,sizeof(value),"%d",0);
+        int ret = ZCAN_SetValue(deviceHandle,path,value);
+        qDebug("%d",ret);
+    }
+
+    if(usbcanfd)
+    {
+        if(!setCanfdBaudRate())
+        {
+            ui->DataRectextBrowser->append("设置波特率失败");
+            return;
+        }
+        config.can_type = TYPE_CANFD;
+        config.canfd.mode = workModeIndex;
+        config.canfd.filter = filterModeIndex;
+        bool ok;
+        config.canfd.acc_code = accCode.toUInt(&ok, 16);
+        config.canfd.acc_mask = shieldCode.toUInt(&ok, 16);
+    }
+    else if(pciecanfd)
+    {
+        char path[50] = {0};
+        char value[100] = {0};
+        if(!setCanfdBaudRate())
+        {
+            ui->DataRectextBrowser->append("设置波特率失败");
+            return;
+        }
+
+        if(type == ZCAN_PCIE_CANFD_400U_EX)
+        {
+            sprintf_s(path,sizeof(path),"0/set_device_recv_merge");
+            sprintf_s(value,sizeof(value),"0");
+            ZCAN_SetValue(deviceHandle,path,value);
+        }
+        config.can_type = TYPE_CANFD;
+        config.canfd.mode = workModeIndex;
+        config.canfd.filter = filterModeIndex;
+        bool ok;
+        config.canfd.acc_code = accCode.toUInt(&ok, 16);
+        config.canfd.acc_mask = shieldCode.toUInt(&ok, 16);
+    }
+
+    //初始化CAN
+    channelHandel = ZCAN_InitCAN(deviceHandle, channelIndex, &config);
+    if(INVALID_CHANNEL_HANDLE == channelHandel)
+    {
+        ui->DataRectextBrowser->append("初始化CAN失败");
+        return;
+    }
+
+    if(usbcanfd)
+    {
+        if(!resistanceEnable && !setResistanceEnable())
+        {
+            ui->DataRectextBrowser->append("终端使能设置失败");
+            return;
+        }
+    }
+
+    ui->InitCANButton->setEnabled(false);
+    ui->DataRectextBrowser->append("初始化成功");
+}
+
+//启动CAN
+void Widget::on_StartCANButton_clicked()
+{
+    if(ZCAN_StartCAN(channelHandel) != STATUS_OK)
+    {
+        ui->DataRectextBrowser->append("启动CAN失败");
+        return;
+    }
+
+    ui->StartCANButton->setEnabled(false);
+    isCANStart = true;
+
+    emit deviceInfo(channelHandel);
+    threadRecMsg.start();
+    threadRecMsg.beginThread();
+    ui->DataRectextBrowser->append("CAN启动成功");
+}
+
+
+//复位功能实现
+void Widget::on_ResetButton_clicked()
+{
+    if(threadRecMsg.isRunning())
+    {
+        threadRecMsg.stopThread();
+        threadRecMsg.wait();
+    }
+
+    if(ZCAN_ResetCAN(channelHandel) != STATUS_OK)
+    {
+        ui->DataRectextBrowser->append("复位失败");
+        return;
+    }
+
+    ui->StartCANButton->setEnabled(true);
+    isCANStart = false;
+    ui->DataRectextBrowser->append("复位成功");
+}
+
+
+//关闭设备
+void Widget::on_CloseDeviceButton_clicked()
+{
+    if(threadRecMsg.isRunning())
+    {
+        threadRecMsg.stopThread();
+        threadRecMsg.wait();
+    }
+    ZCAN_ResetCAN(channelHandel);
+    ZCAN_CloseDevice(deviceHandle);
+    isCANStart = false;
+    enableCtrl(false);
+    ui->StartCANButton->setEnabled(true);
+    ui->InitCANButton->setEnabled(true);
+    isOpenDevice = false;
+    ui->DataRectextBrowser->append("设备已经关闭");
+}
+
+//响应槽函数
+void Widget::slotThreadrecmsgStarted()
+{
+
+}
+
+void Widget::slotThreadrecmsgFinished()
+{
+
+}
+
+void Widget::slotThreadrecmsgNewmsg(ZCAN_Receive_Data *can_data, uint len)
+{
+    QString qStr;
+    for(uint i = 0;i < len;i++)
+    {
+        const ZCAN_Receive_Data &can = can_data[i];
+        const canid_t & id = can.frame.can_id;
+        qStr = QString::asprintf(
+                    "接收到CAN ID:%08X %s %s 长度:%d 数据:", GET_ID(id), IS_EFF(id)?"扩展帧" : "标准帧",
+                    IS_RTR(id)?"远程帧" : "数据帧", can.frame.can_dlc
+                    );
+        for(uint i = 0;i<can.frame.can_dlc;i++)
+        {
+            qStr.append(QString::asprintf("%02X ", can.frame.data[i]));
+        }
+        ui->DataRectextBrowser->append(QString(qStr));
+    }
+}
+
+void Widget::slotThreadrecmsgNewmsg(ZCAN_ReceiveFD_Data *canfd_data, uint len)
+{
+    QString qStr;
+    for(uint i = 0;i < len;i++)
+    {
+        const ZCAN_ReceiveFD_Data &canfd = canfd_data[i];
+        const canid_t & id = canfd.frame.can_id;
+        qStr = QString::asprintf(
+                    "接收到CANFD ID:%08X %s %s 长度:%d 数据:", GET_ID(id), IS_EFF(id)?"扩展帧" : "标准帧",
+                    IS_RTR(id)?"远程帧" : "数据帧", canfd.frame.len
+                    );
+        for(uint i = 0;i<canfd.frame.len;i++)
+        {
+            qStr.append(QString::asprintf("%02X ", canfd.frame.data[i]));
+        }
+        ui->DataRectextBrowser->append(QString(qStr));
+    }
+}
+
+
+
+//槽函数的相关实现
+void Widget::on_DeviceIndexCombox_currentIndexChanged(int index)
+{
+    deviceTypeIndex = index;
+}
+
+void Widget::on_ChannelIndexCombox_currentIndexChanged(int index)
+{
+    channelIndex = index;
+}
+
+void Widget::on_ModelCombox_currentIndexChanged(int index)
+{
+    workModeIndex = index;
+}
+
+void Widget::on_BaudCombox_currentIndexChanged(int index)
+{
+    baudIndex = index;
+}
+
+void Widget::on_TerminalCheckBox_stateChanged(int arg1)
+{
+    resistanceEnable = ui->TerminalCheckBox->isChecked();
+}
+
+void Widget::on_FilterModelCombox_currentIndexChanged(int index)
+{
+    filterModeIndex = index;
+}
+
+void Widget::on_ArbitBaudCombox_currentIndexChanged(int index)
+{
+    arbitBaudIndex = index;
+}
+
+void Widget::on_DataBaudCombox_currentIndexChanged(int index)
+{
+    dataBaudIndex = index;
+}
+
+void Widget::on_FrameTypeCombox_currentIndexChanged(int index)
+{
+    frameTypeIndex = index;
+}
+
+void Widget::on_AgreementCombox_currentIndexChanged(int index)
+{
+    protocalTypeIndex = index;
+}
+
+void Widget::on_CANFDAccCombox_currentIndexChanged(int index)
+{
+    canfdAccIndex = index;
+}
+
+void Widget::on_QueueFrameDelayCkb_stateChanged(int arg1)
+{
+    queueFrameMark = ui->QueueFrameDelayCkb->isChecked();
+}
+
+void Widget::on_SendMannerCombox_currentIndexChanged(int index)
+{
+    sendTypeIndex = index;
+}
+
+void Widget::on_QueueSendModelCkb_stateChanged(int arg1)
+{
+
+}
+
+//清空实现
+void Widget::on_ClearDataButton_clicked()
+{
+    ui->DataRectextBrowser->clear();
 }
